@@ -23,6 +23,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Colors, Spacing } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 
 interface Message {
@@ -155,20 +156,39 @@ function AudioBubble({ uri, colors, isMe }: { uri: string; colors: any; isMe: bo
   );
 }
 
-const uriToBlob = (uri: string): Promise<Blob> => {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.onload = function () {
-      resolve(xhr.response);
-    };
-    xhr.onerror = function (e) {
-      console.error('URI to Blob XHR error:', e);
-      reject(new TypeError("Network request failed"));
-    };
-    xhr.responseType = "blob";
-    xhr.open("GET", uri, true);
-    xhr.send(null);
-  });
+const base64ToUint8Array = (base64: string): Uint8Array => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const lookup = new Uint8Array(256);
+  for (let i = 0; i < chars.length; i++) {
+    lookup[chars.charCodeAt(i)] = i;
+  }
+  
+  let bufferLength = base64.length * 0.75;
+  if (base64[base64.length - 1] === '=') {
+    bufferLength--;
+    if (base64[base64.length - 2] === '=') {
+      bufferLength--;
+    }
+  }
+
+  const bytes = new Uint8Array(bufferLength);
+  let p = 0;
+  for (let i = 0; i < base64.length; i += 4) {
+    const encoded1 = lookup[base64.charCodeAt(i)];
+    const encoded2 = lookup[base64.charCodeAt(i + 1)];
+    const encoded3 = lookup[base64.charCodeAt(i + 2)];
+    const encoded4 = lookup[base64.charCodeAt(i + 3)];
+
+    const bytesVal = (encoded1 << 18) | (encoded2 << 12) | (encoded3 << 6) | encoded4;
+    bytes[p++] = (bytesVal >> 16) & 255;
+    if (p < bufferLength) {
+      bytes[p++] = (bytesVal >> 8) & 255;
+      if (p < bufferLength) {
+        bytes[p++] = bytesVal & 255;
+      }
+    }
+  }
+  return bytes;
 };
 
 export default function ChatScreen() {
@@ -513,17 +533,19 @@ export default function ChatScreen() {
         return;
       }
 
-      // Convert local URI to Blob and enforce audio/mp4 MIME type using XHR
-      const tempBlob = await uriToBlob(uri);
-      const blob = new Blob([tempBlob], { type: 'audio/mp4' });
+      // Convert local URI to binary array using FileSystem to avoid Network request failed errors
+      const base64Data = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const bytes = base64ToUint8Array(base64Data);
       
       const fileName = `${Math.random().toString(36).substring(2, 15)}.mp4`;
       const filePath = `account-${accountId}/${fileName}`;
 
-      // Upload to storage
+      // Upload to storage using raw Uint8Array
       const { data, error: uploadError } = await supabase.storage
         .from('chat-media')
-        .upload(filePath, blob, {
+        .upload(filePath, bytes, {
           contentType: 'audio/mp4',
           cacheControl: '3600',
           upsert: false
@@ -598,19 +620,21 @@ export default function ChatScreen() {
       const selectedAsset = result.assets[0];
       setSending(true);
 
-      // Convert local URI to Blob using XHR
-      const tempBlob = await uriToBlob(selectedAsset.uri);
+      // Convert local URI to binary array using FileSystem to avoid Network request failed errors
+      const base64Data = await FileSystem.readAsStringAsync(selectedAsset.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const bytes = base64ToUint8Array(base64Data);
       const fileExt = selectedAsset.uri.split('.').pop() || 'jpg';
-      const blob = new Blob([tempBlob], { type: selectedAsset.mimeType || `image/${fileExt}` });
       
       const fileName = `${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
       const filePath = `account-${accountId}/${fileName}`;
 
-      // Upload to Supabase Storage
+      // Upload to Supabase Storage using raw Uint8Array
       const { data, error: uploadError } = await supabase.storage
         .from('chat-media')
-        .upload(filePath, blob, {
-          contentType: blob.type || 'image/jpeg',
+        .upload(filePath, bytes, {
+          contentType: selectedAsset.mimeType || `image/${fileExt}`,
           cacheControl: '3600',
           upsert: false
         });
