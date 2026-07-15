@@ -58,11 +58,9 @@ interface MessageTemplate {
 
 interface ContactNote {
   id: string;
-  content: string;
+  note_text: string;
   created_at: string;
-  profiles: {
-    full_name: string;
-  } | null;
+  user_id: string;
 }
 
 // Audio Message Player Component
@@ -178,6 +176,7 @@ export default function ChatScreen() {
   const [notes, setNotes] = useState<ContactNote[]>([]);
   const [newNoteContent, setNewNoteContent] = useState('');
   const [addingNote, setAddingNote] = useState(false);
+  const [profilesMap, setProfilesMap] = useState<Record<string, string>>({});
 
   // Audio Recording States
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
@@ -247,18 +246,28 @@ export default function ChatScreen() {
     }
   };
 
+  const fetchProfiles = async () => {
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('user_id, full_name');
+      if (data) {
+        const map: Record<string, string> = {};
+        data.forEach((p) => {
+          map[p.user_id] = p.full_name;
+        });
+        setProfilesMap(map);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const fetchContactNotes = async (contactId: string) => {
     try {
       const { data, error } = await supabase
         .from('contact_notes')
-        .select(`
-          id,
-          content,
-          created_at,
-          profiles (
-            full_name
-          )
-        `)
+        .select('id, note_text, created_at, user_id')
         .eq('contact_id', contactId)
         .order('created_at', { ascending: false });
 
@@ -285,7 +294,7 @@ export default function ChatScreen() {
         .from('contact_notes')
         .insert({
           contact_id: contact.id,
-          content: newNoteContent.trim(),
+          note_text: newNoteContent.trim(),
           user_id: user.id,
         });
 
@@ -363,6 +372,7 @@ export default function ChatScreen() {
     fetchConversation();
     fetchAccountId();
     fetchMessages();
+    fetchProfiles();
 
     // Subscribe to new messages for this conversation
     console.log('Subscribing to realtime messages for conversation:', id);
@@ -1162,10 +1172,10 @@ export default function ChatScreen() {
                 }
                 renderItem={({ item }) => (
                   <ThemedView style={[styles.noteCard, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
-                    <ThemedText style={styles.noteContent}>{item.content}</ThemedText>
+                    <ThemedText style={styles.noteContent}>{item.note_text}</ThemedText>
                     <ThemedView style={styles.noteFooter}>
                       <ThemedText style={{ fontSize: 11, color: colors.textSecondary, fontWeight: '600' }}>
-                        Por: {item.profiles?.full_name || 'Sistema'}
+                        Por: {profilesMap[item.user_id] || 'Agente'}
                       </ThemedText>
                       <ThemedText style={{ fontSize: 10, color: colors.textSecondary }}>
                         {new Date(item.created_at).toLocaleDateString('pt-BR')} {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
