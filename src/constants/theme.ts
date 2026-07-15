@@ -9,18 +9,34 @@ import { Platform } from 'react-native';
 
 export const Colors = {
   light: {
-    text: '#000000',
-    background: '#ffffff',
-    backgroundElement: '#F0F0F3',
-    backgroundSelected: '#E0E1E6',
-    textSecondary: '#60646C',
+    text: '#111B21',
+    background: '#FFFFFF',
+    backgroundElement: '#F0F2F5',
+    backgroundSelected: '#FFE2E6',
+    textSecondary: '#667781',
+    primary: '#00A884', // WhatsApp Teal
+    success: '#1FA855', // Active/Open
+    warning: '#E17E1A', // Pending
+    danger: '#EA0038',  // Closed
+    chatBg: '#EFEAE2',   // Official WhatsApp light wallpaper beige
+    myBubble: '#D9FDD3',  // Official WhatsApp light green bubble
+    theirBubble: '#FFFFFF', // White
+    border: '#E9EDEF',
   },
   dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
+    text: '#E9EDEF',
+    background: '#111B21', // Dark blue-slate
+    backgroundElement: '#202C33', // WhatsApp dark element
+    backgroundSelected: '#2A3942',
+    textSecondary: '#8696A0',
+    primary: '#00A884',
+    success: '#00E676',
+    warning: '#FFD600',
+    danger: '#FF1744',
+    chatBg: '#0B141A',   // Official WhatsApp dark wallpaper color
+    myBubble: '#005C4B',  // Official WhatsApp dark green bubble
+    theirBubble: '#202C33', // Official WhatsApp dark grey bubble
+    border: '#222E35',
   },
 } as const;
 

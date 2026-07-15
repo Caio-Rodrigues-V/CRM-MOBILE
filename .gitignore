@@ -31,7 +31,10 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
+test-db.js
+test-ssr-cookie.js
 
 # typescript
 *.tsbuildinfo
