@@ -497,11 +497,12 @@ export default function ChatScreen() {
         return;
       }
 
-      // Convert local URI to Blob
+      // Convert local URI to Blob and enforce audio/mp4 MIME type
       const response = await fetch(uri);
-      const blob = await response.blob();
+      const tempBlob = await response.blob();
+      const blob = new Blob([tempBlob], { type: 'audio/mp4' });
       
-      const fileName = `${Math.random().toString(36).substring(2, 15)}.m4a`;
+      const fileName = `${Math.random().toString(36).substring(2, 15)}.mp4`;
       const filePath = `account-${accountId}/${fileName}`;
 
       // Upload to storage
