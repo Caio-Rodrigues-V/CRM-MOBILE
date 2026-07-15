@@ -155,6 +155,22 @@ function AudioBubble({ uri, colors, isMe }: { uri: string; colors: any; isMe: bo
   );
 }
 
+const uriToBlob = (uri: string): Promise<Blob> => {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.onload = function () {
+      resolve(xhr.response);
+    };
+    xhr.onerror = function (e) {
+      console.error('URI to Blob XHR error:', e);
+      reject(new TypeError("Network request failed"));
+    };
+    xhr.responseType = "blob";
+    xhr.open("GET", uri, true);
+    xhr.send(null);
+  });
+};
+
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const scheme = useColorScheme();
@@ -497,9 +513,8 @@ export default function ChatScreen() {
         return;
       }
 
-      // Convert local URI to Blob and enforce audio/mp4 MIME type
-      const response = await fetch(uri);
-      const tempBlob = await response.blob();
+      // Convert local URI to Blob and enforce audio/mp4 MIME type using XHR
+      const tempBlob = await uriToBlob(uri);
       const blob = new Blob([tempBlob], { type: 'audio/mp4' });
       
       const fileName = `${Math.random().toString(36).substring(2, 15)}.mp4`;
@@ -583,11 +598,11 @@ export default function ChatScreen() {
       const selectedAsset = result.assets[0];
       setSending(true);
 
-      // Convert local URI to Blob
-      const response = await fetch(selectedAsset.uri);
-      const blob = await response.blob();
-      
+      // Convert local URI to Blob using XHR
+      const tempBlob = await uriToBlob(selectedAsset.uri);
       const fileExt = selectedAsset.uri.split('.').pop() || 'jpg';
+      const blob = new Blob([tempBlob], { type: selectedAsset.mimeType || `image/${fileExt}` });
+      
       const fileName = `${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
       const filePath = `account-${accountId}/${fileName}`;
 
