@@ -47,7 +47,7 @@ export default function LoginScreen() {
       if (authError) {
         setError(authError.message === 'Invalid login credentials' ? 'Credenciais de login inválidas.' : authError.message);
       } else {
-        router.replace('/(tabs)/index');
+        router.replace('/(tabs)');
       }
     } catch (err: any) {
       setError('Ocorreu um erro ao tentar realizar o login.');

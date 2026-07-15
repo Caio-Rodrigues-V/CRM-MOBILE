@@ -53,7 +53,7 @@ interface MessageTemplate {
   id: string;
   name: string;
   category: string;
-  content: string;
+  body_text: string;
 }
 
 interface ContactNote {
@@ -326,13 +326,14 @@ export default function ChatScreen() {
     try {
       const { data, error } = await supabase
         .from('message_templates')
-        .select('id, name, category, content')
+        .select('id, name, category, body_text')
         .eq('account_id', accountId)
-        .eq('status', 'APPROVED');
+        .in('status', ['APPROVED', 'Approved']);
 
       if (error) {
         console.error('Error fetching templates:', error);
       } else {
+        // @ts-ignore
         setTemplates(data || []);
       }
     } catch (err) {
@@ -497,7 +498,7 @@ export default function ChatScreen() {
       const { data, error: uploadError } = await supabase.storage
         .from('chat-media')
         .upload(filePath, blob, {
-          contentType: 'audio/m4a',
+          contentType: 'audio/mp4',
           cacheControl: '3600',
           upsert: false
         });
@@ -1228,7 +1229,7 @@ export default function ChatScreen() {
                         </ThemedView>
                       </ThemedView>
                       <ThemedText style={[styles.templateBodyText, { color: colors.textSecondary }]} numberOfLines={3}>
-                        {item.content}
+                        {item.body_text}
                       </ThemedText>
                     </TouchableOpacity>
                   )}
