@@ -2,11 +2,16 @@ import React, { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import { ThemeProvider, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { useColorScheme, LogBox } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { Session } from '@supabase/supabase-js';
 
 import LoginScreen from './login';
+
+LogBox.ignoreLogs([
+  'Realtime error',
+  'channel error: transport failure',
+]);
 
 SplashScreen.preventAutoHideAsync();
 
