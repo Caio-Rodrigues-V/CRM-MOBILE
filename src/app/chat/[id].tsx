@@ -24,6 +24,7 @@ import { Colors, Spacing } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
+import { EncodingType } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 
 interface Message {
@@ -535,7 +536,7 @@ export default function ChatScreen() {
 
       // Convert local URI to binary array using FileSystem to avoid Network request failed errors
       const base64Data = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
+        encoding: EncodingType.Base64,
       });
       const bytes = base64ToUint8Array(base64Data);
       
@@ -622,7 +623,7 @@ export default function ChatScreen() {
 
       // Convert local URI to binary array using FileSystem to avoid Network request failed errors
       const base64Data = await FileSystem.readAsStringAsync(selectedAsset.uri, {
-        encoding: FileSystem.EncodingType.Base64,
+        encoding: EncodingType.Base64,
       });
       const bytes = base64ToUint8Array(base64Data);
       const fileExt = selectedAsset.uri.split('.').pop() || 'jpg';
