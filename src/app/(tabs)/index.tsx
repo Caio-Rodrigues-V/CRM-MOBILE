@@ -14,6 +14,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors, Spacing } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface Contact {
   name: string;
@@ -41,6 +42,15 @@ export default function InboxScreen() {
   const [agentFilter, setAgentFilter] = useState<'me' | 'queue' | 'all'>('all');
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
+  // Filters counts state
+  const [counts, setCounts] = useState<{ open: number; pending: number; closed: number }>({
+    open: 0,
+    pending: 0,
+    closed: 0,
+  });
+
+  const CACHE_KEY = `inbox_cache_${statusFilter}_${agentFilter}`;
+
   const fetchConversations = async () => {
     try {
       let query = supabase
@@ -59,7 +69,6 @@ export default function InboxScreen() {
         `)
         .eq('status', statusFilter);
 
-      // Apply agent queue/me filter
       if (agentFilter === 'me' && currentUserId) {
         query = query.eq('assigned_agent_id', currentUserId);
       } else if (agentFilter === 'queue') {
@@ -73,11 +82,34 @@ export default function InboxScreen() {
       } else {
         // @ts-ignore
         setConversations(data || []);
+        // Save to AsyncStorage cache
+        await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(data || []));
       }
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchCounts = async () => {
+    try {
+      // Query all conversations status to compute local counts
+      const { data } = await supabase
+        .from('conversations')
+        .select('status');
+      
+      if (data) {
+        const countsObj = { open: 0, pending: 0, closed: 0 };
+        data.forEach((c) => {
+          if (c.status === 'open') countsObj.open++;
+          else if (c.status === 'pending') countsObj.pending++;
+          else if (c.status === 'closed') countsObj.closed++;
+        });
+        setCounts(countsObj);
+      }
+    } catch (err) {
+      console.error('Error fetching counts:', err);
     }
   };
 
@@ -92,29 +124,37 @@ export default function InboxScreen() {
   }, []);
 
   useEffect(() => {
-    fetchConversations();
+    // Attempt to load from offline cache first
+    const loadCache = async () => {
+      try {
+        const cached = await AsyncStorage.getItem(CACHE_KEY);
+        if (cached) {
+          setConversations(JSON.parse(cached));
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    loadCache();
 
-    // Subscribe to changes in conversations
+    fetchConversations();
+    fetchCounts();
+
     console.log('Subscribing to realtime conversation updates for inbox');
     const channel = supabase
       .channel('inbox-updates')
       .on(
         'postgres_changes',
         { event: '*', schema: 'wacrm', table: 'conversations' },
-        (payload) => {
-          console.log('Received realtime conversation payload:', payload);
+        () => {
           fetchConversations();
+          fetchCounts();
         }
       )
-      .subscribe((status, err) => {
-        console.log('Realtime channel status for inbox-updates:', status);
-        if (err) {
-          console.error('Realtime error for inbox-updates:', err);
-        }
-      });
+      .subscribe();
 
     return () => {
-      console.log('Unsubscribing from realtime conversation updates for inbox');
       supabase.removeChannel(channel);
     };
   }, [statusFilter, agentFilter, currentUserId]);
@@ -149,6 +189,12 @@ export default function InboxScreen() {
     if (status === 'open') return colors.success;
     if (status === 'pending') return colors.warning;
     return colors.danger;
+  };
+
+  const getStatusLabel = (status: 'open' | 'pending' | 'closed') => {
+    const label = status === 'open' ? 'Abertos' : status === 'pending' ? 'Pendentes' : 'Fechados';
+    const count = status === 'open' ? counts.open : status === 'pending' ? counts.pending : counts.closed;
+    return `${label} (${count})`;
   };
 
   const renderConversationItem = ({ item }: { item: Conversation }) => {
@@ -262,10 +308,9 @@ export default function InboxScreen() {
                   style={[
                     styles.filterText,
                     isActive ? { color: colors.primary } : { color: colors.textSecondary },
-                    { textTransform: 'capitalize' }
                   ]}
                 >
-                  {status === 'open' ? 'Abertos' : status === 'pending' ? 'Pendentes' : 'Fechados'}
+                  {getStatusLabel(status)}
                 </ThemedText>
               </TouchableOpacity>
             );
@@ -374,7 +419,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
   },
   filterText: {
-    fontSize: 14,
+    fontSize: 13,
   },
   agentFilterContainer: {
     flexDirection: 'row',

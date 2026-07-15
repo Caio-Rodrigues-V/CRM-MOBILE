@@ -11,6 +11,8 @@ import {
   Alert,
   Image,
   Modal,
+  ScrollView,
+  Linking,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -176,6 +178,10 @@ export default function ChatScreen() {
   const [notes, setNotes] = useState<ContactNote[]>([]);
   const [newNoteContent, setNewNoteContent] = useState('');
   const [addingNote, setAddingNote] = useState(false);
+
+  // Audio Recording States
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   const fetchConversation = async () => {
@@ -438,6 +444,103 @@ export default function ChatScreen() {
     }
   };
 
+  // Audio Recording Methods
+  const startRecording = async () => {
+    try {
+      const permission = await Audio.requestPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permissão Negada', 'Precisamos de acesso ao microfone para gravar áudio.');
+        return;
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      console.log('Starting recording..');
+      const { recording: newRecording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      setRecording(newRecording);
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Failed to start recording', err);
+      Alert.alert('Erro', 'Não foi possível iniciar a gravação.');
+    }
+  };
+
+  const stopAndSendRecording = async () => {
+    if (!recording || !accountId) return;
+    console.log('Stopping and sending recording..');
+    setIsRecording(false);
+    setRecording(null);
+    setSending(true);
+
+    try {
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      if (!uri) {
+        Alert.alert('Erro', 'Gravação vazia.');
+        setSending(false);
+        return;
+      }
+
+      // Convert local URI to Blob
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      
+      const fileName = `${Math.random().toString(36).substring(2, 15)}.m4a`;
+      const filePath = `account-${accountId}/${fileName}`;
+
+      // Upload to storage
+      const { data, error: uploadError } = await supabase.storage
+        .from('chat-media')
+        .upload(filePath, blob, {
+          contentType: 'audio/m4a',
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) {
+        console.error('Upload audio error:', uploadError);
+        Alert.alert('Erro', 'Falha ao subir gravação.');
+        setSending(false);
+        return;
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('chat-media')
+        .getPublicUrl(filePath);
+
+      // Send via WhatsApp API
+      await sendWhatsAppMessage({
+        conversationId: id,
+        messageType: 'audio',
+        mediaUrl: publicUrl,
+        contentText: undefined,
+      });
+
+    } catch (err) {
+      console.error('Recording upload error:', err);
+      Alert.alert('Erro', 'Ocorreu um erro ao enviar a gravação.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const cancelRecording = async () => {
+    if (!recording) return;
+    console.log('Canceling recording..');
+    setIsRecording(false);
+    setRecording(null);
+    try {
+      await recording.stopAndUnloadAsync();
+    } catch (err) {
+      console.error('Failed to cancel recording', err);
+    }
+  };
+
   const handlePickImage = async (useCamera: boolean) => {
     if (!accountId) {
       Alert.alert('Erro', 'Não foi possível carregar os dados da sua conta.');
@@ -681,6 +784,55 @@ export default function ChatScreen() {
               colors={colors}
               isMe={isMe}
             />
+          ) : item.content_type === 'document' && item.media_url ? (
+            <TouchableOpacity
+              onPress={() => item.media_url && Linking.openURL(item.media_url)}
+              style={styles.documentContainer}
+            >
+              <Ionicons name="document-text" size={32} color={isMe ? '#FFFFFF' : colors.primary} />
+              <ThemedView style={{ backgroundColor: 'transparent', flex: 1, gap: 1 }}>
+                <ThemedText style={{ fontSize: 13, fontWeight: '600', color: isMe ? '#FFFFFF' : colors.text }} numberOfLines={1}>
+                  {item.media_url.split('/').pop() || 'Documento PDF'}
+                </ThemedText>
+                <ThemedText style={{ fontSize: 10, color: isMe ? 'rgba(255, 255, 255, 0.7)' : colors.textSecondary }}>
+                  Toque para abrir anexo
+                </ThemedText>
+              </ThemedView>
+            </TouchableOpacity>
+          ) : item.content_type === 'video' && item.media_url ? (
+            <TouchableOpacity
+              onPress={() => item.media_url && Linking.openURL(item.media_url)}
+              style={styles.videoContainer}
+            >
+              <ThemedView style={[styles.videoPlaceholder, { backgroundColor: isMe ? 'rgba(0, 0, 0, 0.2)' : colors.backgroundElement }]}>
+                <Ionicons name="play-circle" size={40} color={isMe ? '#FFFFFF' : colors.primary} />
+                <ThemedText style={{ fontSize: 12, color: isMe ? '#FFFFFF' : colors.text, marginTop: 4 }}>
+                  Vídeo Recebido
+                </ThemedText>
+              </ThemedView>
+            </TouchableOpacity>
+          ) : item.content_type === 'location' ? (
+            <TouchableOpacity
+              onPress={() => {
+                const query = item.content_text || '';
+                const url = Platform.select({
+                  ios: `maps:0,0?q=${query}`,
+                  android: `geo:0,0?q=${query}`,
+                });
+                if (url) Linking.openURL(url);
+              }}
+              style={styles.locationContainer}
+            >
+              <Ionicons name="map" size={24} color={isMe ? '#FFFFFF' : colors.primary} />
+              <ThemedView style={{ backgroundColor: 'transparent', flex: 1, gap: 1 }}>
+                <ThemedText style={{ fontSize: 13, fontWeight: '600', color: isMe ? '#FFFFFF' : colors.text }} numberOfLines={1}>
+                  Localização Enviada
+                </ThemedText>
+                <ThemedText style={{ fontSize: 11, color: isMe ? 'rgba(255, 255, 255, 0.7)' : colors.textSecondary }} numberOfLines={1}>
+                  {item.content_text || 'Ver no GPS'}
+                </ThemedText>
+              </ThemedView>
+            </TouchableOpacity>
           ) : item.content_type === 'template' ? (
             <ThemedView style={styles.templateMessageContainer}>
               <ThemedView style={styles.templateHeader}>
@@ -809,55 +961,91 @@ export default function ChatScreen() {
 
             {/* Input Bar (Floating/Detached style) */}
             <ThemedView style={styles.inputContainer}>
-              <ThemedView
-                style={[
-                  styles.inputBar,
-                  {
-                    backgroundColor: colors.background,
-                    borderColor: colors.border,
-                  },
-                ]}
-              >
-                <TouchableOpacity onPress={() => setTemplateModalVisible(true)} style={styles.attachBtn}>
-                  <Ionicons name="flash-outline" size={22} color={colors.primary} />
-                </TouchableOpacity>
+              {isRecording ? (
+                // Active Recording Status Bar
+                <ThemedView style={[styles.inputBar, { backgroundColor: '#FADBD8', borderColor: '#EC7063', paddingVertical: 10, paddingHorizontal: Spacing.four, alignItems: 'center' }]}>
+                  <Ionicons name="mic" size={20} color="#C0392B" style={styles.blinkingIcon} />
+                  <ThemedText style={{ color: '#C0392B', fontWeight: 'bold', fontSize: 14, flex: 1, marginLeft: 8 }}>
+                    Gravando mensagem de voz...
+                  </ThemedText>
+                  
+                  <TouchableOpacity onPress={cancelRecording} style={styles.recordingActionBtn}>
+                    <Ionicons name="trash-outline" size={20} color="#C0392B" />
+                  </TouchableOpacity>
 
-                <TextInput
-                  style={[
-                    styles.input,
-                    {
-                      color: colors.text,
-                    },
-                  ]}
-                  placeholder="Mensagem..."
-                  placeholderTextColor={colors.textSecondary}
-                  value={inputText}
-                  onChangeText={setInputText}
-                  multiline
-                />
+                  <TouchableOpacity onPress={stopAndSendRecording} style={[styles.recordingActionBtn, { marginLeft: 12 }]}>
+                    <Ionicons name="checkmark-circle-outline" size={22} color="#27AE60" />
+                  </TouchableOpacity>
+                </ThemedView>
+              ) : (
+                // Normal text input bar
+                <>
+                  <ThemedView
+                    style={[
+                      styles.inputBar,
+                      {
+                        backgroundColor: colors.background,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  >
+                    <TouchableOpacity onPress={() => setTemplateModalVisible(true)} style={styles.attachBtn}>
+                      <Ionicons name="flash-outline" size={22} color={colors.primary} />
+                    </TouchableOpacity>
 
-                <TouchableOpacity onPress={handlePickMediaMenu} style={styles.attachBtn}>
-                  <Ionicons name="camera-outline" size={22} color={colors.textSecondary} />
-                </TouchableOpacity>
-              </ThemedView>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        {
+                          color: colors.text,
+                        },
+                      ]}
+                      placeholder="Mensagem..."
+                      placeholderTextColor={colors.textSecondary}
+                      value={inputText}
+                      onChangeText={setInputText}
+                      multiline
+                    />
 
-              <TouchableOpacity
-                onPress={handleSend}
-                disabled={sending || !inputText.trim()}
-                style={[
-                  styles.sendButton,
-                  {
-                    backgroundColor: colors.primary,
-                    opacity: inputText.trim() ? 1 : 0.6,
-                  },
-                ]}
-              >
-                {sending ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Ionicons name="send" size={18} color="#FFFFFF" />
-                )}
-              </TouchableOpacity>
+                    <TouchableOpacity onPress={handlePickMediaMenu} style={styles.attachBtn}>
+                      <Ionicons name="camera-outline" size={22} color={colors.textSecondary} />
+                    </TouchableOpacity>
+                  </ThemedView>
+
+                  {/* Send or Voice Record Action Button */}
+                  {inputText.trim() ? (
+                    <TouchableOpacity
+                      onPress={handleSend}
+                      disabled={sending}
+                      style={[
+                        styles.sendButton,
+                        {
+                          backgroundColor: colors.primary,
+                        },
+                      ]}
+                    >
+                      {sending ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Ionicons name="send" size={18} color="#FFFFFF" />
+                      )}
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={startRecording}
+                      disabled={sending}
+                      style={[
+                        styles.sendButton,
+                        {
+                          backgroundColor: colors.primary,
+                        },
+                      ]}
+                    >
+                      <Ionicons name="mic" size={20} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  )}
+                </>
+              )}
             </ThemedView>
           </KeyboardAvoidingView>
         )}
@@ -879,7 +1067,7 @@ export default function ChatScreen() {
                 </TouchableOpacity>
               </ThemedView>
 
-              {/* Scrollable container using single FlatList for optimized nesting */}
+              {/* Scrollable container using single FlatList */}
               <FlatList
                 data={notes}
                 keyExtractor={(item) => item.id}
@@ -1194,6 +1382,34 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
   },
+  documentContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: 210,
+    paddingVertical: 4,
+    backgroundColor: 'transparent',
+    gap: 8,
+  },
+  videoContainer: {
+    width: 210,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: 'transparent',
+  },
+  videoPlaceholder: {
+    height: 120,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: 210,
+    paddingVertical: 4,
+    backgroundColor: 'transparent',
+    gap: 8,
+  },
   templateMessageContainer: {
     paddingVertical: 2,
     backgroundColor: 'transparent',
@@ -1253,6 +1469,9 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 8,
     fontSize: 15,
+  },
+  recordingActionBtn: {
+    padding: 4,
   },
   sendButton: {
     width: 44,
@@ -1418,5 +1637,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 100,
     backgroundColor: 'transparent',
+  },
+  blinkingIcon: {
+    opacity: 0.85,
   },
 });
